@@ -1,0 +1,346 @@
+<header class="page-header">
+  <div class="page-header__titles">
+    <h1 class="page-header__title">Purchase Bill</h1>
+    <p class="page-header__subtitle">{{ billSubtitle() }}</p>
+  </div>
+  <div class="page-header__actions">
+    @if (loading()) {
+      <mat-progress-spinner diameter="24" mode="indeterminate" class="header-spinner"></mat-progress-spinner>
+    }
+    <button
+      mat-icon-button
+      type="button"
+      matTooltip="Reload master data"
+      (click)="bootstrap()"
+      [disabled]="loading()">
+      <mat-icon>refresh</mat-icon>
+    </button>
+    <button mat-icon-button type="button" matTooltip="New bill" (click)="newBill()">
+      <mat-icon>add</mat-icon>
+    </button>
+    <button
+      mat-icon-button
+      type="button"
+      matTooltip="Save"
+      color="primary"
+      (click)="save()"
+      [disabled]="loading()">
+      <mat-icon>save</mat-icon>
+    </button>
+    <button mat-icon-button type="button" matTooltip="Close / reset" (click)="newBill()">
+      <mat-icon>close</mat-icon>
+    </button>
+  </div>
+</header>
+
+<div class="erp-page">
+  @if (error()) {
+    <div class="banner error">{{ error() }}</div>
+  }
+
+  <div class="erp-layout">
+    <section class="workspace">
+      <mat-tab-group class="main-tabs" animationDuration="0ms">
+        <mat-tab label="Header">
+          <div class="tab-body">
+            <div class="status-strip">
+              <mat-chip-set>
+                <mat-chip [color]="isOnline() ? 'primary' : 'warn'">
+                  {{ isOnline() ? 'Online' : 'Offline' }}
+                </mat-chip>
+                <mat-chip>Pending offline: {{ pendingQueue().length }}</mat-chip>
+                @if (currentBillId != null) {
+                  <mat-chip>Bill #{{ currentBillId }}</mat-chip>
+                }
+              </mat-chip-set>
+            </div>
+            <div class="header-grid">
+              <mat-form-field appearance="outline" class="wide">
+                <mat-label>Load saved bill</mat-label>
+                <mat-select
+                  placeholder="Select to open"
+                  (selectionChange)="loadBill($event.value)"
+                  [disabled]="loading() || !isOnline()">
+                  @for (b of billHeaders; track b.id) {
+                    <mat-option [value]="b.id">
+                      #{{ b.id }} · {{ b.createdAt | date : 'short' }} · {{ b.lineCount }} lines ·
+                      {{ b.totalAmount | number : '1.2-2' }}
+                    </mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
+              <div class="header-btn-row">
+                <button mat-stroked-button type="button" (click)="exportPdf()">
+                  <mat-icon>picture_as_pdf</mat-icon>
+                  PDF
+                </button>
+                <button mat-stroked-button type="button" (click)="saveOffline()">
+                  <mat-icon>cloud_off</mat-icon>
+                  Save offline
+                </button>
+                <button mat-stroked-button type="button" (click)="syncNow()" [disabled]="!isOnline()">
+                  <mat-icon>sync</mat-icon>
+                  Sync
+                </button>
+              </div>
+            </div>
+          </div>
+        </mat-tab>
+
+        <mat-tab label="Details">
+          <mat-tab-group class="sub-tabs" animationDuration="0ms">
+            <mat-tab label="Items">
+              <div class="tab-body tab-body--items">
+                <form [formGroup]="form" class="items-form">
+                  <!-- Entry row (add line) -->
+                  <div class="entry-panel mat-elevation-z1" formGroupName="entry">
+                    <div class="entry-panel__label">New line</div>
+                    <div class="entry-grid">
+                      <mat-form-field appearance="outline" class="entry-item">
+                        <mat-label>Item *</mat-label>
+                        <input
+                          matInput
+                          formControlName="itemSearch"
+                          [matAutocomplete]="auto"
+                          placeholder="Search / pick item"
+                          (focus)="setAcEntry()" />
+                        <button mat-icon-button matSuffix type="button" tabindex="-1">
+                          <mat-icon>list</mat-icon>
+                        </button>
+                        @if (entry.get('itemSearch')?.invalid && entry.get('itemSearch')?.touched) {
+                          <mat-error>Required</mat-error>
+                        }
+                      </mat-form-field>
+
+                      <mat-form-field appearance="outline">
+                        <mat-label>Batch</mat-label>
+                        <mat-select formControlName="locationId">
+                          @for (loc of locations; track loc.locationId) {
+                            <mat-option [value]="loc.locationId">{{ loc.locationName }}</mat-option>
+                          }
+                        </mat-select>
+                      </mat-form-field>
+
+                      <mat-form-field appearance="outline">
+                        <mat-label>Std cost</mat-label>
+                        <input matInput type="number" formControlName="cost" />
+                      </mat-form-field>
+
+                      <mat-form-field appearance="outline">
+                        <mat-label>Std price</mat-label>
+                        <input matInput type="number" formControlName="price" />
+                      </mat-form-field>
+
+                      <div class="readonly-field">
+                        <span class="readonly-field__label">Margin</span>
+                        <span class="readonly-field__value mono">{{ entryMargin() | number : '1.2-2' }}</span>
+                      </div>
+
+                      <mat-form-field appearance="outline">
+                        <mat-label>Qty</mat-label>
+                        <input matInput type="number" formControlName="quantity" />
+                      </mat-form-field>
+
+                      <mat-form-field appearance="outline">
+                        <mat-label>Disc %</mat-label>
+                        <input matInput type="number" formControlName="discountPercent" />
+                      </mat-form-field>
+
+                      <div class="readonly-field">
+                        <span class="readonly-field__label">Tot cost</span>
+                        <span class="readonly-field__value mono">{{ entryTotalCost() | number : '1.2-2' }}</span>
+                      </div>
+
+                      <div class="readonly-field">
+                        <span class="readonly-field__label">Tot selling</span>
+                        <span class="readonly-field__value mono">{{ entryTotalSelling() | number : '1.2-2' }}</span>
+                      </div>
+
+                      <button
+                        mat-flat-button
+                        type="button"
+                        class="btn-add-line"
+                        (click)="addLineFromEntry()">
+                        <mat-icon>add</mat-icon>
+                        Add
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Line items grid -->
+                  <div class="grid-panel">
+                    <table class="items-table">
+                      <thead>
+                        <tr>
+                          <th>Item</th>
+                          <th>Batch</th>
+                          <th class="num">Std cost</th>
+                          <th class="num">Std price</th>
+                          <th class="num">Margin</th>
+                          <th class="num">Qty</th>
+                          <th class="num">Disc %</th>
+                          <th class="num">Tot cost</th>
+                          <th class="num">Tot selling</th>
+                          <th class="col-actions"></th>
+                        </tr>
+                      </thead>
+                      <tbody formArrayName="lines">
+                        @for (row of lines.controls; track $index; let idx = $index) {
+                          <tr [formGroupName]="idx">
+                            <td>
+                              <mat-form-field appearance="outline" class="cell-field" subscriptSizing="dynamic">
+                                <input
+                                  matInput
+                                  formControlName="itemSearch"
+                                  [matAutocomplete]="auto"
+                                  (focus)="setAcRow(idx)" />
+                              </mat-form-field>
+                            </td>
+                            <td>
+                              <mat-form-field appearance="outline" class="cell-field cell-field--batch" subscriptSizing="dynamic">
+                                <mat-select formControlName="locationId">
+                                  @for (loc of locations; track loc.locationId) {
+                                    <mat-option [value]="loc.locationId">{{ loc.locationName }}</mat-option>
+                                  }
+                                </mat-select>
+                              </mat-form-field>
+                            </td>
+                            <td>
+                              <mat-form-field appearance="outline" class="cell-field cell-field--num" subscriptSizing="dynamic">
+                                <input matInput type="number" formControlName="cost" />
+                              </mat-form-field>
+                            </td>
+                            <td>
+                              <mat-form-field appearance="outline" class="cell-field cell-field--num" subscriptSizing="dynamic">
+                                <input matInput type="number" formControlName="price" />
+                              </mat-form-field>
+                            </td>
+                            <td class="mono cell-readonly">{{ lineMargin(row) | number : '1.2-2' }}</td>
+                            <td>
+                              <mat-form-field appearance="outline" class="cell-field cell-field--num" subscriptSizing="dynamic">
+                                <input matInput type="number" formControlName="quantity" />
+                              </mat-form-field>
+                            </td>
+                            <td>
+                              <mat-form-field appearance="outline" class="cell-field cell-field--num" subscriptSizing="dynamic">
+                                <input matInput type="number" formControlName="discountPercent" />
+                              </mat-form-field>
+                            </td>
+                            <td class="mono cell-readonly">{{ lineTotalCost(row) | number : '1.2-2' }}</td>
+                            <td class="mono cell-readonly">{{ lineTotalSelling(row) | number : '1.2-2' }}</td>
+                            <td>
+                              <button mat-icon-button type="button" color="warn" (click)="removeLine(idx)">
+                                <mat-icon>delete_outline</mat-icon>
+                              </button>
+                            </td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                    @if (lines.length === 0) {
+                      <p class="grid-empty">No lines yet. Use the entry row above and click <strong>+ Add</strong>.</p>
+                    }
+                  </div>
+                </form>
+
+                <mat-autocomplete #auto="matAutocomplete" (optionSelected)="onAcSelect($event.option.value)">
+                  @for (item of filterItemsAc(); track item.itemId) {
+                    <mat-option [value]="item">{{ item.itemName }}</mat-option>
+                  }
+                </mat-autocomplete>
+              </div>
+            </mat-tab>
+
+            <mat-tab label="Accounts">
+              <div class="tab-body">
+                <p class="placeholder-text">Account distribution is not used in this module.</p>
+              </div>
+            </mat-tab>
+
+            <mat-tab label="Taxes">
+              <div class="tab-body">
+                <p class="placeholder-text">Taxes are not configured for purchase bills in this version.</p>
+              </div>
+            </mat-tab>
+          </mat-tab-group>
+        </mat-tab>
+
+        <mat-tab label="Notes">
+          <div class="tab-body">
+            <p class="placeholder-text">Notes can be added in a future release.</p>
+          </div>
+        </mat-tab>
+
+        <mat-tab label="Documents">
+          <div class="tab-body">
+            <p class="placeholder-text">Attach documents from the full ERP document store (not wired here).</p>
+          </div>
+        </mat-tab>
+      </mat-tab-group>
+    </section>
+
+    <aside class="summary-rail">
+      <section class="summary-block">
+        <h3 class="summary-block__title">Item summary</h3>
+        <div class="summary-row">
+          <span>Total items</span>
+          <span class="mono">{{ summary().totalItems }}</span>
+        </div>
+        <div class="summary-row">
+          <span>Total qty</span>
+          <span class="mono">{{ summary().totalQty }}</span>
+        </div>
+      </section>
+
+      <section class="summary-block">
+        <h3 class="summary-block__title">Financial summary</h3>
+        <div class="summary-row">
+          <span>Gross cost (pre-disc.)</span>
+          <span class="mono">{{ summary().grossCostPreDiscount | number : '1.2-2' }}</span>
+        </div>
+        <div class="summary-row">
+          <span>Line discounts</span>
+          <span class="mono">{{ summary().totalDiscountAmount | number : '1.2-2' }}</span>
+        </div>
+        <div class="summary-row">
+          <span>Net cost</span>
+          <span class="mono">{{ summary().totalCostAfterDiscount | number : '1.2-2' }}</span>
+        </div>
+        <div class="summary-row">
+          <span>Total selling</span>
+          <span class="mono">{{ summary().totalSelling | number : '1.2-2' }}</span>
+        </div>
+      </section>
+
+      <section class="summary-block summary-block--tax">
+        <h3 class="summary-block__title">Tax summary</h3>
+        <p class="muted tiny">No tax lines in this build.</p>
+        <div class="summary-row muted">
+          <span>Total tax</span>
+          <span class="mono">—</span>
+        </div>
+      </section>
+
+      <div class="net-total">
+        <div class="net-total__label">Net total (selling)</div>
+        <div class="net-total__value">Rs. {{ netTotalDisplay() | number : '1.2-2' }}</div>
+      </div>
+
+      <section class="summary-block summary-block--queue">
+        <h3 class="summary-block__title">Offline queue</h3>
+        @if (pendingQueue().length === 0) {
+          <p class="muted tiny">No pending records.</p>
+        } @else {
+          <ul class="queue-list">
+            @for (q of pendingQueue(); track q.localKey) {
+              <li>
+                <span class="badge">{{ q.syncStatus }}</span>
+                {{ q.mode }} · {{ q.label }}
+              </li>
+            }
+          </ul>
+        }
+      </section>
+    </aside>
+  </div>
+</div>
